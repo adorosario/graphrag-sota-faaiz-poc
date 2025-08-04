@@ -1,0 +1,1 @@
+MATCH (n)-[r]->(m) RETURN m, n, r

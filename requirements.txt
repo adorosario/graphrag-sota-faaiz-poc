@@ -1,0 +1,11 @@
+neo4j
+spacy 
+chromadb 
+llama-index 
+streamlit 
+fastapi 
+uvicorn 
+pandas 
+numpy
+python-dotenv
+sentence-transformers 
