@@ -389,66 +389,149 @@ class VectorRetriever:
         self.config = config
         self.embedding_model = SentenceTransformer(config.EMBEDDING_MODEL)
 
-        # Initialize ChromaDB
+        # Initialize ChromaDB with persistent storage
         self.chroma_client = chromadb.PersistentClient(path="./chroma_db")
-        self.collection = self.chroma_client.get_or_create_collection(
-            name="documents",
-            embedding_function=embedding_functions.SentenceTransformerEmbeddingFunction(
-                model_name=config.EMBEDDING_MODEL
+
+        # Get or create collection with embedding function
+        try:
+            self.collection = self.chroma_client.get_collection(
+                name="documents",
+                embedding_function=embedding_functions.SentenceTransformerEmbeddingFunction(
+                    model_name=config.EMBEDDING_MODEL
+                )
             )
+            logger.info("Using existing ChromaDB collection")
+        except:
+            self.collection = self.chroma_client.create_collection(
+                name="documents",
+                embedding_function=embedding_functions.SentenceTransformerEmbeddingFunction(
+                    model_name=config.EMBEDDING_MODEL
+                )
+            )
+            logger.info("Created new ChromaDB collection")
+
+        # Populate collection if empty
+        self._ensure_documents_indexed()
+
+    def _ensure_documents_indexed(self):
+        """Ensure documents from Neo4j are indexed in ChromaDB."""
+
+        # Check if collection has documents
+        try:
+            count = self.collection.count()
+            if count > 0:
+                logger.info(f"ChromaDB collection has {count} documents")
+                return
+        except:
+            pass
+
+        logger.info("Populating ChromaDB from Neo4j documents...")
+
+        # Get documents from Neo4j
+        neo4j_driver = GraphDatabase.driver(
+            self.config.NEO4J_URI,
+            auth=(self.config.NEO4J_USER, self.config.NEO4J_PASSWORD)
         )
 
-    def add_documents(self, documents: List[Dict[str, Any]]):
-        """Add documents to vector store."""
+        try:
+            with neo4j_driver.session() as session:
+                result = session.run("""
+                    MATCH (d:Document)
+                    RETURN d.id as id, 
+                           d.content as content, 
+                           d.title as title,
+                           d.source_path as source_path,
+                           d.document_type as document_type
+                    LIMIT 100
+                """)
 
-        ids = [doc['id'] for doc in documents]
-        texts = [doc['content'] for doc in documents]
-        metadatas = [doc.get('metadata', {}) for doc in documents]
+                documents = []
+                metadatas = []
+                ids = []
 
-        self.collection.add(
-            ids=ids,
-            documents=texts,
-            metadatas=metadatas
-        )
+                for record in result:
+                    if record['content'] and len(record['content'].strip()) > 10:
+                        documents.append(record['content'])
+                        metadatas.append({
+                            'title': record['title'] or 'Unknown',
+                            'source_path': record['source_path'] or 'unknown',
+                            'document_type': record['document_type'] or 'text'
+                        })
+                        ids.append(record['id'])
 
-        logger.info(f"Added {len(documents)} documents to vector store")
+                if documents:
+                    # Add to ChromaDB in batches
+                    batch_size = 10
+                    for i in range(0, len(documents), batch_size):
+                        batch_docs = documents[i:i+batch_size]
+                        batch_metas = metadatas[i:i+batch_size]
+                        batch_ids = ids[i:i+batch_size]
+
+                        self.collection.add(
+                            documents=batch_docs,
+                            metadatas=batch_metas,
+                            ids=batch_ids
+                        )
+
+                    logger.info(
+                        f"Added {len(documents)} documents to ChromaDB")
+                else:
+                    logger.warning("No documents found in Neo4j to index")
+
+        except Exception as e:
+            logger.error(f"Failed to populate ChromaDB: {e}")
+        finally:
+            neo4j_driver.close()
 
     def retrieve(self, query: str, k: int = 10) -> List[RetrievalResult]:
         """Retrieve most similar documents using vector search."""
 
         start_time = time.time()
 
-        # Query the collection
-        results = self.collection.query(
-            query_texts=[query],
-            n_results=k
-        )
+        try:
+            # Query the collection
+            results = self.collection.query(
+                query_texts=[query],
+                n_results=min(k, self.collection.count())
+            )
 
-        # Format results
-        retrieval_results = []
-        if results['documents'] and results['documents'][0]:
-            for i, (doc, distance, metadata) in enumerate(zip(
-                results['documents'][0],
-                results['distances'][0],
-                results['metadatas'][0]
-            )):
+            # Format results
+            retrieval_results = []
 
-                # Convert distance to similarity score
-                score = 1.0 - distance if distance is not None else 0.0
+            if results['documents'] and results['documents'][0]:
+                for i, (doc, distance, metadata) in enumerate(zip(
+                    results['documents'][0],
+                    results['distances'][0],
+                    results['metadatas'][0]
+                )):
 
-                result = RetrievalResult(
-                    content=doc,
-                    score=score,
-                    source=metadata.get('source', 'unknown'),
-                    metadata=metadata,
-                    route_used=RouteType.VECTOR
-                )
-                retrieval_results.append(result)
+                    # Convert distance to similarity score (ChromaDB uses cosine distance)
+                    score = max(
+                        0.0, 1.0 - distance) if distance is not None else 0.0
 
-        processing_time = time.time() - start_time
-        logger.info(f"Vector retrieval completed in {processing_time:.3f}s")
+                    result = RetrievalResult(
+                        content=doc,
+                        score=score,
+                        source=metadata.get('source_path', 'unknown'),
+                        metadata={
+                            'title': metadata.get('title', 'Unknown Document'),
+                            'document_type': metadata.get('document_type', 'text'),
+                            'similarity_distance': distance,
+                            'rank': i + 1
+                        },
+                        route_used=RouteType.VECTOR
+                    )
+                    retrieval_results.append(result)
 
-        return retrieval_results
+            processing_time = time.time() - start_time
+            logger.info(
+                f"Vector retrieval completed in {processing_time:.3f}s")
+
+            return retrieval_results
+
+        except Exception as e:
+            logger.error(f"Vector retrieval failed: {e}")
+            return []
 
 # =============================================================================
 # GRAPH RETRIEVAL SYSTEM
@@ -474,100 +557,193 @@ class GraphRetriever:
             # Fallback to text search if no entities
             return self._text_to_cypher_fallback(query, k)
 
-        # Build Cypher query for entity-based traversal
-        cypher_query = self._build_traversal_query(entities, k)
+        # Try entity-based traversal first
+        results = self._entity_traversal_query(entities, k)
 
-        with self.driver.session() as session:
-            result = session.run(cypher_query, entities=entities, limit=k)
-
-            retrieval_results = []
-            for record in result:
-                content = record.get('content', '')
-                # Default score for graph results
-                score = record.get('score', 0.5)
-                source = record.get('source', 'graph')
-
-                result_obj = RetrievalResult(
-                    content=content,
-                    score=score,
-                    source=source,
-                    metadata={'entities': entities,
-                              'traversal_depth': record.get('depth', 1)},
-                    route_used=RouteType.GRAPH
-                )
-                retrieval_results.append(result_obj)
+        # If no results, fall back to text search
+        if not results:
+            logger.info(
+                "No results from entity traversal, falling back to text search")
+            results = self._text_to_cypher_fallback(query, k)
 
         processing_time = time.time() - start_time
         logger.info(f"Graph retrieval completed in {processing_time:.3f}s")
 
-        return retrieval_results
+        return results
 
-    def _build_traversal_query(self, entities: List[str], k: int) -> str:
-        """Build Cypher query for multi-hop traversal."""
+    def _entity_traversal_query(self, entities: List[str], k: int) -> List[RetrievalResult]:
+        """Query using entity relationships (handles case where no RELATED relationships exist)."""
 
-        return """
+        # First, try to find documents containing the entities
+        cypher_query = """
         // Find entities matching query entities
         MATCH (e:Entity)
         WHERE e.text IN $entities
         
-        // Traverse relationships to find connected entities and documents
-        MATCH (e)-[r:RELATED*1..3]-(connected:Entity)
-        MATCH (d:Document)-[:CONTAINS]->(connected)
+        // Find documents containing these entities
+        MATCH (d:Document)-[:CONTAINS]->(e)
         
-        // Calculate relevance score based on relationship strength and distance
-        WITH d, e, connected, r,
-             CASE 
-                WHEN size(r) = 1 THEN 1.0
-                WHEN size(r) = 2 THEN 0.7  
-                WHEN size(r) = 3 THEN 0.4
-                ELSE 0.2
-             END as distance_score,
-             avg([rel in r | rel.confidence]) as path_confidence
+        // Also find other entities in the same documents (co-occurrence relationships)
+        MATCH (d)-[:CONTAINS]->(other:Entity)
+        WHERE other.text <> e.text
         
-        // Aggregate and rank results
-        WITH d, 
-             max(distance_score * path_confidence) as score,
-             collect(DISTINCT e.text) as matched_entities,
-             collect(DISTINCT connected.text) as connected_entities,
-             size(r) as depth
+        // Calculate relevance score based on entity matches and co-occurrences
+        WITH d, e, other,
+             COUNT(DISTINCT e) as matched_entities,
+             COUNT(DISTINCT other) as related_entities
+        
+        // Aggregate results per document
+        WITH d,
+             matched_entities,
+             related_entities,
+             (matched_entities * 2.0 + related_entities * 0.5) as relevance_score,
+             COLLECT(DISTINCT e.text) as found_entities,
+             COLLECT(DISTINCT other.text)[0..5] as related_entity_sample
         
         RETURN d.content as content,
-               score,
+               relevance_score as score,
                d.source_path as source,
-               matched_entities,
-               connected_entities,
-               depth
-        ORDER BY score DESC
+               found_entities,
+               related_entity_sample,
+               d.title as title
+        ORDER BY relevance_score DESC
         LIMIT $limit
         """
+
+        try:
+            with self.driver.session() as session:
+                result = session.run(cypher_query, entities=entities, limit=k)
+
+                retrieval_results = []
+                for record in result:
+                    content = record.get('content', '')
+                    score = float(record.get('score', 0.5))
+                    source = record.get('source', 'unknown')
+                    title = record.get('title', 'Unknown Document')
+                    found_entities = record.get('found_entities', [])
+                    related_entities = record.get('related_entity_sample', [])
+
+                    if content:  # Only add if we have content
+                        result_obj = RetrievalResult(
+                            content=content,
+                            score=score,
+                            source=source,
+                            metadata={
+                                'title': title,
+                                'found_entities': found_entities,
+                                'related_entities': related_entities,
+                                'graph_method': 'entity_co_occurrence'
+                            },
+                            route_used=RouteType.GRAPH
+                        )
+                        retrieval_results.append(result_obj)
+
+                return retrieval_results
+
+        except Exception as e:
+            logger.error(f"Entity traversal query failed: {e}")
+            return []
 
     def _text_to_cypher_fallback(self, query: str, k: int) -> List[RetrievalResult]:
         """Fallback to full-text search when graph traversal returns no results."""
 
+        # Use Neo4j full-text search
         cypher_query = """
         CALL db.index.fulltext.queryNodes('document_search', $query) 
         YIELD node, score
         RETURN node.content as content,
                score,
-               node.source_path as source
+               node.source_path as source,
+               node.title as title
         LIMIT $limit
         """
 
-        with self.driver.session() as session:
-            result = session.run(cypher_query, query=query, limit=k)
+        try:
+            with self.driver.session() as session:
+                result = session.run(cypher_query, query=query, limit=k)
 
-            retrieval_results = []
-            for record in result:
-                result_obj = RetrievalResult(
-                    content=record['content'],
-                    score=record['score'],
-                    source=record['source'],
-                    metadata={'fallback': True},
-                    route_used=RouteType.GRAPH
-                )
-                retrieval_results.append(result_obj)
+                retrieval_results = []
+                for record in result:
+                    content = record.get('content', '')
+                    score = float(record.get('score', 0.3))
+                    source = record.get('source', 'unknown')
+                    title = record.get('title', 'Unknown Document')
 
-            return retrieval_results
+                    if content:
+                        result_obj = RetrievalResult(
+                            content=content,
+                            score=score,
+                            source=source,
+                            metadata={
+                                'title': title,
+                                'graph_method': 'fulltext_search'
+                            },
+                            route_used=RouteType.GRAPH
+                        )
+                        retrieval_results.append(result_obj)
+
+                return retrieval_results
+
+        except Exception as e:
+            logger.error(f"Full-text search fallback failed: {e}")
+            # Final fallback - simple content search
+            return self._simple_content_search(query, k)
+
+    def _simple_content_search(self, query: str, k: int) -> List[RetrievalResult]:
+        """Simple content-based search as final fallback."""
+
+        cypher_query = """
+        MATCH (d:Document)
+        WHERE toLower(d.content) CONTAINS toLower($query_term)
+        RETURN d.content as content,
+               0.4 as score,
+               d.source_path as source,
+               d.title as title
+        LIMIT $limit
+        """
+
+        # Extract main terms from query
+        query_terms = [term.strip()
+                       for term in query.lower().split() if len(term) > 2]
+
+        retrieval_results = []
+
+        try:
+            with self.driver.session() as session:
+                for term in query_terms[:3]:  # Try first 3 significant terms
+                    result = session.run(
+                        cypher_query, query_term=term, limit=k//2)
+
+                    for record in result:
+                        content = record.get('content', '')
+                        # Filter out very short content
+                        if content and len(content) > 50:
+                            result_obj = RetrievalResult(
+                                content=content,
+                                score=0.4,
+                                source=record.get('source', 'unknown'),
+                                metadata={
+                                    'title': record.get('title', 'Unknown Document'),
+                                    'search_term': term,
+                                    'graph_method': 'simple_content_search'
+                                },
+                                route_used=RouteType.GRAPH
+                            )
+                            retrieval_results.append(result_obj)
+
+                # Remove duplicates based on source
+                seen_sources = set()
+                unique_results = []
+                for result in retrieval_results:
+                    if result.source not in seen_sources:
+                        seen_sources.add(result.source)
+                        unique_results.append(result)
+
+                return unique_results[:k]
+
+        except Exception as e:
+            logger.error(f"Simple content search failed: {e}")
+            return []
 
 # =============================================================================
 # HYBRID RETRIEVAL SYSTEM
