@@ -1,0 +1,16 @@
+nohup: ignoring input
+
+  You can now view your Streamlit app in your browser.
+
+  URL: http://0.0.0.0:8501
+
+2025-08-06 03:28:27,272 - INFO - Use pytorch device_name: cpu
+2025-08-06 03:28:27,274 - INFO - Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-06 03:28:27,833 - INFO - Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2025-08-06 03:28:28,016 - INFO - Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-06 03:28:28,367 - INFO - Using existing ChromaDB collection
+2025-08-06 03:28:28,422 - INFO - ChromaDB collection has 11 documents
+2025-08-06 03:29:14,145 - INFO - ChromaDB collection has 11 documents
+2025-08-06 03:31:23,648 - INFO - Routed query to vector (confidence: 0.90)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  3.87it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  3.86it/s]
+2025-08-06 03:31:23,964 - INFO - Vector retrieval completed in 0.315s
