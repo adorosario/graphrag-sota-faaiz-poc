@@ -1,0 +1,177 @@
+services:
+  # Neo4j Database
+  neo4j:
+    image: neo4j:5.15-community
+    container_name: graphrag-neo4j
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    environment:
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+      # Fixed memory settings for Neo4j 5.x
+      - NEO4J_server_memory_heap_initial__size=1G
+      - NEO4J_server_memory_heap_max__size=1G
+      - NEO4J_server_memory_pagecache_size=1G
+      # Disable strict validation to avoid config errors
+      - NEO4J_server_config_strict__validation_enabled=false
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_import:/var/lib/neo4j/import
+      - neo4j_plugins:/plugins
+    networks:
+      - graphrag-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p $NEO4J_PASSWORD 'RETURN 1;' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  # GraphRAG Application - Using fast build
+  graphrag-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.fast  # Use the fast Dockerfile
+    container_name: graphrag-app
+    ports:
+      - "8501:8501"
+    environment:
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USERNAME=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DEMO_USERNAME_1=${DEMO_USERNAME_1}
+      - DEMO_PASSWORD_1=${DEMO_PASSWORD_1}
+      - DEMO_USERNAME_2=${DEMO_USERNAME_2}
+      - DEMO_PASSWORD_2=${DEMO_PASSWORD_2}
+      - DEMO_USERNAME_3=${DEMO_USERNAME_3}
+      - DEMO_PASSWORD_3=${DEMO_PASSWORD_3}
+      - STREAMLIT_PORT=8501
+      - EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+      - DATA_DIR=/app/data
+      - CACHE_DIR=/app/cache
+      - CHROMA_DB_PATH=/app/chroma_db
+    volumes:
+      - ./data:/app/data
+      - ./cache:/app/cache  
+      - ./chroma_db:/app/chroma_db
+      - ./logs:/app/logs
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    networks:
+      - graphrag-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  neo4j_data:
+    driver: local
+  neo4j_logs:
+    driver: local
+  neo4j_import:
+    driver: local
+  neo4j_plugins:
+    driver: local
+
+networks:
+  graphrag-network:
+    driver: bridge
+    
+# services:
+#   # Neo4j Database
+#   neo4j:
+#     image: neo4j:5.15-community
+#     container_name: graphrag-neo4j
+#     ports:
+#       - "7474:7474"  # HTTP
+#       - "7687:7687"  # Bolt
+#     environment:
+#       - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
+#       - NEO4J_PLUGINS=["apoc"]
+#       - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+#       # Fixed memory settings for Neo4j 5.x
+#       - NEO4J_server_memory_heap_initial__size=1G
+#       - NEO4J_server_memory_heap_max__size=1G
+#       - NEO4J_server_memory_pagecache_size=1G
+#       # Disable strict validation to avoid config errors
+#       - NEO4J_server_config_strict__validation_enabled=false
+#     volumes:
+#       - neo4j_data:/data
+#       - neo4j_logs:/logs
+#       - neo4j_import:/var/lib/neo4j/import
+#       - neo4j_plugins:/plugins
+#     networks:
+#       - graphrag-network
+#     restart: unless-stopped
+#     healthcheck:
+#       test: ["CMD-SHELL", "cypher-shell -u neo4j -p $NEO4J_PASSWORD 'RETURN 1;' || exit 1"]
+#       interval: 30s
+#       timeout: 10s
+#       retries: 5
+#       start_period: 40s
+
+#   # GraphRAG Application
+#   graphrag-app:
+#     build:
+#       context: .
+#       dockerfile: Dockerfile
+#     container_name: graphrag-app
+#     ports:
+#       - "8501:8501"
+#     environment:
+#       - NEO4J_URI=bolt://neo4j:7687
+#       - NEO4J_USERNAME=neo4j
+#       - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+#       - OPENAI_API_KEY=${OPENAI_API_KEY}
+#       - DEMO_USERNAME_1=${DEMO_USERNAME_1}
+#       - DEMO_PASSWORD_1=${DEMO_PASSWORD_1}
+#       - DEMO_USERNAME_2=${DEMO_USERNAME_2}
+#       - DEMO_PASSWORD_2=${DEMO_PASSWORD_2}
+#       - DEMO_USERNAME_3=${DEMO_USERNAME_3}
+#       - DEMO_PASSWORD_3=${DEMO_PASSWORD_3}
+#       - STREAMLIT_PORT=8501
+#       - EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+#       - DATA_DIR=/app/data
+#       - CACHE_DIR=/app/cache
+#       - CHROMA_DB_PATH=/app/chroma_db
+#     volumes:
+#       - ./data:/app/data
+#       - ./cache:/app/cache  
+#       - ./chroma_db:/app/chroma_db
+#       - ./logs:/app/logs
+#     depends_on:
+#       neo4j:
+#         condition: service_healthy
+#     networks:
+#       - graphrag-network
+#     restart: unless-stopped
+#     healthcheck:
+#       test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+#       interval: 30s
+#       timeout: 10s
+#       retries: 3
+#       start_period: 60s
+
+# volumes:
+#   neo4j_data:
+#     driver: local
+#   neo4j_logs:
+#     driver: local
+#   neo4j_import:
+#     driver: local
+#   neo4j_plugins:
+#     driver: local
+
+# networks:
+#   graphrag-network:
+#     driver: bridge

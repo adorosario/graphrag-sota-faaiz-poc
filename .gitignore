@@ -48,6 +48,7 @@ temp_*/
 sample_data/
 datasets/
 data/input/
+data/uploads/
 data/processed/
 
 # IDE and Editor Files

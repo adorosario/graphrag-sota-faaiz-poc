@@ -4,13 +4,27 @@ nohup: ignoring input
 
   URL: http://0.0.0.0:8501
 
-2025-08-06 03:28:27,272 - INFO - Use pytorch device_name: cpu
-2025-08-06 03:28:27,274 - INFO - Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
-2025-08-06 03:28:27,833 - INFO - Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
-2025-08-06 03:28:28,016 - INFO - Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
-2025-08-06 03:28:28,367 - INFO - Using existing ChromaDB collection
-2025-08-06 03:28:28,422 - INFO - ChromaDB collection has 11 documents
-2025-08-06 03:29:14,145 - INFO - ChromaDB collection has 11 documents
-2025-08-06 03:31:23,648 - INFO - Routed query to vector (confidence: 0.90)
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  3.87it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  3.86it/s]
-2025-08-06 03:31:23,964 - INFO - Vector retrieval completed in 0.315s
+2025-08-06 13:04:28,829 - INFO - Use pytorch device_name: cpu
+2025-08-06 13:04:28,829 - INFO - Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-06 13:04:29,310 - INFO - Anonymized telemetry enabled. See                     https://docs.trychroma.com/telemetry for more information.
+2025-08-06 13:04:29,504 - INFO - Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-06 13:04:30,046 - INFO - Using existing ChromaDB collection
+2025-08-06 13:04:30,139 - INFO - ChromaDB collection has 11 documents
+2025-08-06 13:05:52,519 - INFO - Routed query to vector (confidence: 0.90)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 11.06it/s]
+2025-08-06 13:05:52,617 - INFO - Vector retrieval completed in 0.098s
+2025-08-06 13:34:14,911 - INFO - ChromaDB collection has 11 documents
+2025-08-06 13:35:23,516 - INFO - ChromaDB collection has 11 documents
+2025-08-06 13:36:33,544 - INFO - Routed query to vector (confidence: 0.60)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  3.09it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  3.09it/s]
+2025-08-06 13:36:33,921 - INFO - Vector retrieval completed in 0.377s
+2025-08-07 12:14:13,007 - INFO - Routed query to vector (confidence: 0.90)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 18.36it/s]
+2025-08-07 12:14:13,086 - INFO - Vector retrieval completed in 0.077s
+2025-08-07 12:17:46,406 - INFO - Routed query to vector (confidence: 0.90)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 47.68it/s]
+2025-08-07 12:17:46,434 - INFO - Vector retrieval completed in 0.028s
+2025-08-07 16:15:45,689 - INFO - Routed query to vector (confidence: 0.90)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 52.67it/s]
+2025-08-07 16:15:45,716 - INFO - Vector retrieval completed in 0.026s
+  Stopping...

@@ -1,12 +1,12 @@
+# Minimal working set - install latest compatible versions
 neo4j
-spacy 
-chromadb 
-llama-index 
-streamlit 
-fastapi 
-uvicorn 
-pandas 
+spacy
+chromadb
+streamlit
+pandas
 numpy
-python-dotenv
-sentence-transformers 
 plotly
+python-dotenv
+sentence-transformers
+llama-index
+scikit-learn
