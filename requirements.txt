@@ -1,3 +1,7 @@
+# =====================
+# requirements.txt
+# =====================
+
 # Minimal working set - install latest compatible versions
 neo4j
 spacy
@@ -10,3 +14,6 @@ python-dotenv
 sentence-transformers
 llama-index
 scikit-learn
+fastapi
+uvicorn
+pydantic

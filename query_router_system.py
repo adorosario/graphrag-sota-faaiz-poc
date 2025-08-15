@@ -1,3 +1,8 @@
+# =====================
+# query_router_system.py
+# =====================
+
+# query_router_system.py
 #!/usr/bin/env python3
 """
 GraphRAG Query Router & Hybrid Retrieval System
@@ -396,21 +401,80 @@ class VectorRetriever:
         # Populate collection if empty
         self._ensure_documents_indexed()
     
+    # def _ensure_documents_indexed(self):
+    #     """Ensure documents from Neo4j are indexed in ChromaDB."""
+        
+    #     # Check if collection has documents
+    #     try:
+    #         count = self.collection.count()
+    #         if count > 0:
+    #             logger.info(f"ChromaDB collection has {count} documents")
+    #             return
+    #     except:
+    #         pass
+        
+    #     logger.info("Populating ChromaDB from Neo4j documents...")
+        
+    #     # Get documents from Neo4j
+    #     neo4j_driver = GraphDatabase.driver(
+    #         self.config.NEO4J_URI,
+    #         auth=(self.config.NEO4J_USER, self.config.NEO4J_PASSWORD)
+    #     )
+        
+    #     try:
+    #         with neo4j_driver.session() as session:
+    #             result = session.run("""
+    #                 MATCH (d:Document)
+    #                 RETURN d.id as id, 
+    #                        d.content as content, 
+    #                        d.title as title,
+    #                        d.source_path as source_path,
+    #                        d.document_type as document_type
+    #                 LIMIT 100
+    #             """)
+                
+    #             documents = []
+    #             metadatas = []
+    #             ids = []
+                
+    #             for record in result:
+    #                 if record['content'] and len(record['content'].strip()) > 10:
+    #                     documents.append(record['content'])
+    #                     metadatas.append({
+    #                         'title': record['title'] or 'Unknown',
+    #                         'source_path': record['source_path'] or 'unknown',
+    #                         'document_type': record['document_type'] or 'text'
+    #                     })
+    #                     ids.append(record['id'])
+                
+    #             if documents:
+    #                 # Add to ChromaDB in batches
+    #                 batch_size = 10
+    #                 for i in range(0, len(documents), batch_size):
+    #                     batch_docs = documents[i:i+batch_size]
+    #                     batch_metas = metadatas[i:i+batch_size]
+    #                     batch_ids = ids[i:i+batch_size]
+                        
+    #                     self.collection.add(
+    #                         documents=batch_docs,
+    #                         metadatas=batch_metas,
+    #                         ids=batch_ids
+    #                     )
+                    
+    #                 logger.info(f"Added {len(documents)} documents to ChromaDB")
+    #             else:
+    #                 logger.warning("No documents found in Neo4j to index")
+                    
+    #     except Exception as e:
+    #         logger.error(f"Failed to populate ChromaDB: {e}")
+    #     finally:
+    #         neo4j_driver.close()
     def _ensure_documents_indexed(self):
         """Ensure documents from Neo4j are indexed in ChromaDB."""
         
-        # Check if collection has documents
-        try:
-            count = self.collection.count()
-            if count > 0:
-                logger.info(f"ChromaDB collection has {count} documents")
-                return
-        except:
-            pass
+        logger.info("Syncing ChromaDB with Neo4j documents...")
         
-        logger.info("Populating ChromaDB from Neo4j documents...")
-        
-        # Get documents from Neo4j
+        # Always sync with Neo4j to ensure consistency
         neo4j_driver = GraphDatabase.driver(
             self.config.NEO4J_URI,
             auth=(self.config.NEO4J_USER, self.config.NEO4J_PASSWORD)
@@ -418,53 +482,81 @@ class VectorRetriever:
         
         try:
             with neo4j_driver.session() as session:
-                result = session.run("""
-                    MATCH (d:Document)
-                    RETURN d.id as id, 
-                           d.content as content, 
-                           d.title as title,
-                           d.source_path as source_path,
-                           d.document_type as document_type
-                    LIMIT 100
-                """)
+                # Get Neo4j document count
+                neo4j_count_result = session.run("MATCH (d:Document) RETURN count(d) as count")
+                neo4j_count = neo4j_count_result.single()["count"]
                 
-                documents = []
-                metadatas = []
-                ids = []
+                # Get ChromaDB document count
+                try:
+                    chroma_count = self.collection.count()
+                except:
+                    chroma_count = 0
                 
-                for record in result:
-                    if record['content'] and len(record['content'].strip()) > 10:
-                        documents.append(record['content'])
-                        metadatas.append({
-                            'title': record['title'] or 'Unknown',
-                            'source_path': record['source_path'] or 'unknown',
-                            'document_type': record['document_type'] or 'text'
-                        })
-                        ids.append(record['id'])
+                logger.info(f"Neo4j documents: {neo4j_count}, ChromaDB documents: {chroma_count}")
                 
-                if documents:
-                    # Add to ChromaDB in batches
-                    batch_size = 10
-                    for i in range(0, len(documents), batch_size):
-                        batch_docs = documents[i:i+batch_size]
-                        batch_metas = metadatas[i:i+batch_size]
-                        batch_ids = ids[i:i+batch_size]
-                        
-                        self.collection.add(
-                            documents=batch_docs,
-                            metadatas=batch_metas,
-                            ids=batch_ids
-                        )
+                # If counts don't match, resync
+                if neo4j_count != chroma_count:
+                    logger.info("Document count mismatch, resyncing ChromaDB...")
                     
-                    logger.info(f"Added {len(documents)} documents to ChromaDB")
+                    # Delete and recreate collection for clean sync
+                    try:
+                        self.chroma_client.delete_collection("documents")
+                        self.collection = self.chroma_client.create_collection(
+                            name="documents",
+                            embedding_function=embedding_functions.SentenceTransformerEmbeddingFunction(
+                                model_name=self.config.EMBEDDING_MODEL
+                            )
+                        )
+                        logger.info("Recreated ChromaDB collection")
+                    except Exception as e:
+                        logger.warning(f"Collection recreation warning: {e}")
+                    
+                    # Get all documents from Neo4j
+                    result = session.run("""
+                        MATCH (d:Document)
+                        RETURN d.id as id, 
+                            d.content as content, 
+                            d.title as title,
+                            d.source_path as source_path,
+                            d.document_type as document_type
+                    """)
+                    
+                    documents = []
+                    metadatas = []
+                    ids = []
+                    
+                    for record in result:
+                        if record['content'] and len(record['content'].strip()) > 10:
+                            documents.append(record['content'])
+                            metadatas.append({
+                                'title': record['title'] or 'Unknown',
+                                'source_path': record['source_path'] or 'unknown',
+                                'document_type': record['document_type'] or 'text'
+                            })
+                            ids.append(record['id'])
+                    
+                    if documents:
+                        # Add to ChromaDB in batches
+                        batch_size = 10
+                        for i in range(0, len(documents), batch_size):
+                            batch_docs = documents[i:i+batch_size]
+                            batch_metas = metadatas[i:i+batch_size]
+                            batch_ids = ids[i:i+batch_size]
+                            
+                            self.collection.add(
+                                documents=batch_docs,
+                                metadatas=batch_metas,
+                                ids=batch_ids
+                            )
+                        
+                        logger.info(f"✅ Synced {len(documents)} documents to ChromaDB")
                 else:
-                    logger.warning("No documents found in Neo4j to index")
+                    logger.info("✅ ChromaDB is already in sync with Neo4j")
                     
         except Exception as e:
-            logger.error(f"Failed to populate ChromaDB: {e}")
+            logger.error(f"Failed to sync ChromaDB: {e}")
         finally:
             neo4j_driver.close()
-    
     def retrieve(self, query: str, k: int = 10) -> List[RetrievalResult]:
         """Retrieve most similar documents using vector search."""
         

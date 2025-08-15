@@ -1,100 +1,66 @@
-# Git and version control
+# Git
 .git
 .gitignore
-.gitattributes
 
-# Documentation
-*.md
-docs/
-screenshots/
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
 
-# IDE and editor files
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS generated files
+# OS
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
+# Docker
+.dockerignore
+Dockerfile*
+docker-compose*.yml
 
-# Virtual environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
+# Deployment
+deploy*.sh
+nginx*.conf
+*.log
 
-# Data directories (will be mounted as volumes)
-data/
-cache/
+# Documentation
+README.md
+docs/
+*.md
+
+# Testing
+tests/
+test_*.py
+pytest.ini
+.coverage
+
+# Large data files (will be mounted as volumes)
 chroma_db/
-logs/
-
-# Neo4j data
 neo4j_data/
+logs/
+cache/
 
 # Temporary files
 *.tmp
-*.temp
-.cache/
+*.bak
+*.backup
 
-# Docker
-Dockerfile*
-docker-compose*.yml
-.dockerignore
-
-# Deployment
-deploy.sh
-nginx.conf
-ssl/
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-.nox/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# pyenv
-.python-version
-
-# Environments
-.env.local
-.env.development
-.env.test
-.env.production
+# Environment files (will be passed via docker-compose)
+.env*

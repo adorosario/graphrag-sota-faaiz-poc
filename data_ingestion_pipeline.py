@@ -1,3 +1,8 @@
+# =====================
+# data_ingestion_pipeline.py
+# =====================
+
+# data_ingestion_pipeline.py
 # GraphRAG POC - Data Ingestion Pipeline & Neo4j Schema Implementation
 
 import os
