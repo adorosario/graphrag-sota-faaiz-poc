@@ -15,8 +15,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Copy and install requirements
 WORKDIR /build
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && \
-    python -m spacy download en_core_web_sm
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Final stage - minimal runtime image
 FROM python:3.10-slim

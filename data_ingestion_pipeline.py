@@ -18,8 +18,7 @@ from dataclasses import dataclass, asdict
 import pandas as pd
 import numpy as np
 from neo4j import GraphDatabase
-import spacy
-from sentence_transformers import SentenceTransformer
+import openai
 import chromadb
 from llama_index.core import SimpleDirectoryReader, Document
 from llama_index.core.llama_dataset import download_llama_dataset
@@ -55,8 +54,9 @@ class Config:
     # LLM Configuration
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY")
 
-    # Embedding Model
-    EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+    # OpenAI Models (Optimized for GraphRAG speed/cost)
+    OPENAI_EMBEDDING_MODEL: str = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+    OPENAI_CHAT_MODEL: str = os.getenv("OPENAI_CHAT_MODEL", "gpt-5-nano")
 
     # Processing Parameters
     CHUNK_SIZE: int = 512
@@ -159,16 +159,8 @@ class DataIngestionPipeline:
         self.cache_dir = Path(config.CACHE_DIR)
         self.cache_dir.mkdir(exist_ok=True)
 
-        # Initialize embedding model
-        self.embedding_model = SentenceTransformer(config.EMBEDDING_MODEL)
-
-        # Initialize NLP model for entity extraction
-        try:
-            self.nlp = spacy.load("en_core_web_sm")
-        except IOError:
-            logger.warning(
-                "spaCy model not found. Run: python -m spacy download en_core_web_sm")
-            self.nlp = None
+        # Initialize OpenAI client
+        openai.api_key = config.OPENAI_API_KEY
 
         # File hash cache for incremental processing
         self.file_hashes = self._load_file_hashes()
@@ -284,29 +276,44 @@ class DataIngestionPipeline:
         return type_mapping.get(ext, 'unknown')
 
     def extract_entities(self, text: str, doc_id: str) -> List[Entity]:
-        """Extract named entities from text using spaCy."""
-        if not self.nlp:
-            return []
+        """Extract named entities from text using OpenAI GPT."""
+        try:
+            prompt = f"""
+Extract named entities from the following text. Return a JSON array of entities with the format:
+[{{"text": "entity_text", "label": "PERSON|ORG|GPE|EVENT|PRODUCT|etc", "start": 0, "end": 10}}]
 
-        doc = self.nlp(text)
-        entities = []
+Only include high-quality entities (no numbers, dates, or single characters). Limit to {self.config.MAX_ENTITIES_PER_CHUNK} entities.
 
-        for ent in doc.ents:
-            # Filter out low-quality entities
-            if len(ent.text.strip()) < 2 or ent.label_ in ['CARDINAL', 'ORDINAL']:
-                continue
-
-            entity = Entity(
-                id=f"ent_{hashlib.md5((doc_id + ent.text + ent.label_).encode()).hexdigest()[:12]}",
-                text=ent.text.strip(),
-                label=ent.label_,
-                start_pos=ent.start_char,
-                end_pos=ent.end_char,
-                confidence=1.0  # spaCy doesn't provide confidence scores directly
+Text: {text[:2000]}  
+"""
+            
+            response = openai.chat.completions.create(
+                model=self.config.OPENAI_CHAT_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=1000
             )
-            entities.append(entity)
-
-        return entities[:self.config.MAX_ENTITIES_PER_CHUNK]
+            
+            import json
+            entities_data = json.loads(response.choices[0].message.content)
+            entities = []
+            
+            for ent_data in entities_data:
+                entity = Entity(
+                    id=f"ent_{hashlib.md5((doc_id + ent_data['text'] + ent_data['label']).encode()).hexdigest()[:12]}",
+                    text=ent_data['text'].strip(),
+                    label=ent_data['label'],
+                    start_pos=ent_data.get('start', 0),
+                    end_pos=ent_data.get('end', 0),
+                    confidence=0.9
+                )
+                entities.append(entity)
+            
+            return entities[:self.config.MAX_ENTITIES_PER_CHUNK]
+            
+        except Exception as e:
+            logger.warning(f"Entity extraction failed: {e}")
+            return []
 
     def extract_relationships(self, text: str, entities: List[Entity], doc_id: str) -> List[Relationship]:
         """Extract relationships between entities using pattern matching."""
@@ -546,7 +553,8 @@ class LazyGraphBuilder:
         self.config = config
         self.ingestion_pipeline = DataIngestionPipeline(config)
         self.graph_manager = Neo4jGraphManager(config)
-        self.embedding_model = SentenceTransformer(config.EMBEDDING_MODEL)
+        # OpenAI client initialized in DataIngestionPipeline
+        openai.api_key = config.OPENAI_API_KEY
 
     async def build_from_directory(self, directory_path: str) -> Dict[str, Any]:
         """
@@ -599,13 +607,25 @@ class LazyGraphBuilder:
         entities = self.ingestion_pipeline.extract_entities(
             doc.content, doc.id)
 
-        # Generate embeddings for entities
+        # Generate embeddings for entities using OpenAI
         if entities:
-            entity_texts = [entity.text for entity in entities]
-            embeddings = self.embedding_model.encode(entity_texts).tolist()
-
-            for entity, embedding in zip(entities, embeddings):
-                entity.embedding = embedding
+            try:
+                entity_texts = [entity.text for entity in entities]
+                response = openai.embeddings.create(
+                    model=self.config.OPENAI_EMBEDDING_MODEL,
+                    input=entity_texts
+                )
+                
+                embeddings = [data.embedding for data in response.data]
+                
+                for entity, embedding in zip(entities, embeddings):
+                    entity.embedding = embedding
+                    
+            except Exception as e:
+                logger.warning(f"Embedding generation failed: {e}")
+                # Continue without embeddings
+                for entity in entities:
+                    entity.embedding = None
 
         # Create entity nodes
         self.graph_manager.create_entity_nodes(entities, doc.id)

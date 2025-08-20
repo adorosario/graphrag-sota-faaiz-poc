@@ -2,16 +2,15 @@
 # requirements.txt
 # =====================
 
-# Minimal working set - install latest compatible versions
+# Lightweight GraphRAG with OpenAI APIs
 neo4j
-spacy
 chromadb
 streamlit
 pandas
 numpy
 plotly
 python-dotenv
-sentence-transformers
+openai
 llama-index
 scikit-learn
 fastapi

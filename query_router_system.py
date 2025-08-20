@@ -24,8 +24,7 @@ import math
 
 import numpy as np
 import pandas as pd
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
+import openai
 from neo4j import GraphDatabase
 import chromadb
 from chromadb.utils import embedding_functions
@@ -99,8 +98,10 @@ class RouterConfig:
     NEO4J_USER: str = os.getenv("NEO4J_USERNAME")
     NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD")
     
-    # Embedding Model
-    EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+    # OpenAI API Key (Optimized for GraphRAG speed/cost)
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY")
+    OPENAI_EMBEDDING_MODEL: str = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+    OPENAI_CHAT_MODEL: str = os.getenv("OPENAI_CHAT_MODEL", "gpt-5-nano")
     
     # Router Thresholds (tunable for optimization)
     VECTOR_MAX_COMPLEXITY: float = 0.3
@@ -121,7 +122,8 @@ class RouterConfig:
         required_vars = {
             'NEO4J_URI': self.NEO4J_URI,
             'NEO4J_USERNAME': self.NEO4J_USER,
-            'NEO4J_PASSWORD': self.NEO4J_PASSWORD
+            'NEO4J_PASSWORD': self.NEO4J_PASSWORD,
+            'OPENAI_API_KEY': self.OPENAI_API_KEY
         }
         
         missing_vars = [var for var, value in required_vars.items() if not value]
@@ -375,7 +377,7 @@ class VectorRetriever:
     
     def __init__(self, config):
         self.config = config
-        self.embedding_model = SentenceTransformer(config.EMBEDDING_MODEL)
+        openai.api_key = config.OPENAI_API_KEY
         
         # Initialize ChromaDB with persistent storage
         self.chroma_client = chromadb.PersistentClient(path="./chroma_db")
@@ -384,16 +386,18 @@ class VectorRetriever:
         try:
             self.collection = self.chroma_client.get_collection(
                 name="documents",
-                embedding_function=embedding_functions.SentenceTransformerEmbeddingFunction(
-                    model_name=config.EMBEDDING_MODEL
+                embedding_function=embedding_functions.OpenAIEmbeddingFunction(
+                    api_key=config.OPENAI_API_KEY,
+                    model_name=config.OPENAI_EMBEDDING_MODEL
                 )
             )
             logger.info("Using existing ChromaDB collection")
         except:
             self.collection = self.chroma_client.create_collection(
                 name="documents",
-                embedding_function=embedding_functions.SentenceTransformerEmbeddingFunction(
-                    model_name=config.EMBEDDING_MODEL
+                embedding_function=embedding_functions.OpenAIEmbeddingFunction(
+                    api_key=config.OPENAI_API_KEY,
+                    model_name=config.OPENAI_EMBEDDING_MODEL
                 )
             )
             logger.info("Created new ChromaDB collection")
@@ -503,8 +507,9 @@ class VectorRetriever:
                         self.chroma_client.delete_collection("documents")
                         self.collection = self.chroma_client.create_collection(
                             name="documents",
-                            embedding_function=embedding_functions.SentenceTransformerEmbeddingFunction(
-                                model_name=self.config.EMBEDDING_MODEL
+                            embedding_function=embedding_functions.OpenAIEmbeddingFunction(
+                                api_key=self.config.OPENAI_API_KEY,
+                                model_name=self.config.OPENAI_EMBEDDING_MODEL
                             )
                         )
                         logger.info("Recreated ChromaDB collection")
